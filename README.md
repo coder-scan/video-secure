@@ -1,4 +1,6 @@
-# Secure Video Infrastructure & Anti-Piracy Platform
+# video-secure
+
+## Secure Video Infrastructure & Anti-Piracy Platform
 
 A high-performance platform for secure video hosting, streaming, anti-piracy intelligence, dynamic watermarking, and centralized quota management.
 
