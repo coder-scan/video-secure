@@ -70,3 +70,17 @@ All Stage 1 components are verified via automated Pytest suites:
 * Direct upload intent & presigned URL generation
 * Storage quota hard-limit enforcement
 * Multi-tenant IDOR boundary isolation
+
+---
+
+## Production Deployment (Render.com)
+
+The project includes ready-to-use Render Blueprint configuration ([`render.yaml`](./render.yaml)) supporting both multi-service architecture (FastAPI, Celery Worker, PostgreSQL, Redis, Next.js) and lightweight single-service mode.
+
+For complete instructions, see the [Render Deployment Guide](./RENDER_DEPLOYMENT.md).
+
+### Quick 1-Click Deploy:
+1. Connect this repo in [Render Blueprints](https://dashboard.render.com/blueprints).
+2. Render will automatically provision the PostgreSQL database, Redis, Backend API, Worker, and Next.js frontend with secure secrets.
+3. Click **Apply**.
+

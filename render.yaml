@@ -1,0 +1,135 @@
+# ==============================================================================
+# SECURE VIDEO PLATFORM - RENDER BLUEPRINT CONFIGURATION
+# Reference: https://render.com/docs/blueprint-spec
+# ==============================================================================
+
+databases:
+  # Managed PostgreSQL Database
+  - name: secure-video-db
+    databaseName: secure_video_db
+    user: secure_video_user
+    plan: free
+    region: oregon
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Managed Redis Key-Value Store
+  # ----------------------------------------------------------------------------
+  - type: redis
+    name: secure-video-redis
+    plan: free
+    region: oregon
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  # ----------------------------------------------------------------------------
+  # 2. Control Plane Web Service (FastAPI)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: secure-video-backend
+    runtime: docker
+    dockerContext: backend
+    dockerfilePath: backend/Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: PORT
+        value: "8000"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MASTER_ENCRYPTION_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: secure-video-db
+          property: connectionString
+      - key: REDIS_URL
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: STORAGE_PROVIDER_TYPE
+        value: LOCAL
+      - key: LOCAL_STORAGE_BASE_PATH
+        value: ./storage
+      - key: CORS_ORIGINS
+        value: "http://localhost:3000"
+
+  # ----------------------------------------------------------------------------
+  # 3. Processing Plane Background Worker (Celery + FFmpeg)
+  # ----------------------------------------------------------------------------
+  - type: worker
+    name: secure-video-worker
+    runtime: docker
+    dockerContext: backend
+    dockerfilePath: backend/Dockerfile
+    dockerCommand: celery -A app.celery_app worker --loglevel=info -c 2
+    plan: starter
+    region: oregon
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: secure-video-backend
+          envVarKey: SECRET_KEY
+      - key: MASTER_ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: secure-video-backend
+          envVarKey: MASTER_ENCRYPTION_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: secure-video-db
+          property: connectionString
+      - key: REDIS_URL
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromRedis:
+          name: secure-video-redis
+          property: connectionString
+      - key: STORAGE_PROVIDER_TYPE
+        value: LOCAL
+      - key: LOCAL_STORAGE_BASE_PATH
+        value: ./storage
+
+  # ----------------------------------------------------------------------------
+  # 4. Next.js Creator Studio & Player Frontend
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: secure-video-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: secure-video-backend
+          property: host

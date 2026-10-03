@@ -134,15 +134,23 @@ async def complete_upload(
     await db.commit()
     await db.refresh(video)
 
-    # Dispatch asynchronous transcoding task
+    # Dispatch asynchronous transcoding task (Celery if online, or async fallback)
+    dispatched = False
     try:
         from app.workers.transcode_tasks import process_video_task
         process_video_task.apply_async(args=[video.id, current_tenant.id], retry=False)
-    except Exception as e:
-        # If celery broker is offline, task remains QUEUED for worker sweep
-        pass
+        dispatched = True
+    except Exception:
+        dispatched = False
+
+    if not dispatched:
+        # Fallback for single-container / free-tier deployments without running Celery worker
+        import asyncio
+        from app.workers.transcode_tasks import _process_video_async
+        asyncio.create_task(_process_video_async(video.id, current_tenant.id))
 
     return video
+
 
 
 @router.post("/{video_id}/retry-process", response_model=VideoResponse)
@@ -170,13 +178,21 @@ async def retry_process(
     await db.commit()
     await db.refresh(video)
 
+    dispatched = False
     try:
         from app.workers.transcode_tasks import process_video_task
         process_video_task.delay(video.id, current_tenant.id)
+        dispatched = True
     except Exception:
-        pass
+        dispatched = False
+
+    if not dispatched:
+        import asyncio
+        from app.workers.transcode_tasks import _process_video_async
+        asyncio.create_task(_process_video_async(video.id, current_tenant.id))
 
     return video
+
 
 
 @router.get("", response_model=List[VideoResponse])

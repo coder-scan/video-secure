@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -42,11 +42,16 @@ out/
 .vercel
 
 # Storage & Temporary
-storage/
+/storage/
+/backend/storage/
 uploads/
+/uploads/
 scratch/
+/scratch/
 temp/
+/temp/
 storage_test/
+/storage_test/
 *.db
 *.sqlite
 *.sqlite3
