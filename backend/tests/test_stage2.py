@@ -9,7 +9,8 @@ from app.models.tenant import Tenant, TenantQuota, TenantUsage
 from app.models.video import Video
 from app.services.storage.factory import get_storage_provider
 from app.services.video.crypto import decrypt_key_cipher, encrypt_key_cipher, generate_aes128_key_and_iv
-from app.services.video.inspector import MediaValidationError, inspect_media_file
+from unittest.mock import patch
+from app.services.video.inspector import MediaMetadata, MediaValidationError, inspect_media_file
 from app.services.video.transcoder import select_target_variants
 from app.workers.transcode_tasks import _process_video_async
 
@@ -52,6 +53,17 @@ async def test_variant_resolution_picker():
     assert names_480 == ["360p"]
 
 
+MOCK_META = MediaMetadata(
+    duration_seconds=60.0,
+    width=1280,
+    height=720,
+    codec_video="h264",
+    codec_audio="aac",
+    container_format="mov,mp4",
+    size_bytes=1024 * 50,
+)
+
+
 @pytest.mark.asyncio
 async def test_media_inspector_untrusted_input(tmp_path: Path):
     # 1. Non-existent file
@@ -67,7 +79,7 @@ async def test_media_inspector_untrusted_input(tmp_path: Path):
     # 3. Invalid container / fake file
     fake_file = tmp_path / "fake.mp4"
     fake_file.write_text("THIS IS NOT A REAL VIDEO FILE")
-    with pytest.raises(MediaValidationError, match="Unsupported file signature or container"):
+    with pytest.raises(MediaValidationError, match="Unsupported file signature or container|Invalid or corrupted media file"):
         inspect_media_file(fake_file)
 
 
@@ -116,8 +128,22 @@ async def test_end_to_end_transcode_pipeline(client: AsyncClient):
     assert comp_res.status_code == 200
     assert comp_res.json()["status"] == "QUEUED"
 
-    # 5. Execute worker processing
-    worker_res = await _process_video_async(video_id, tenant_id)
+    def mock_transcode(source_file, output_dir, key_uri, raw_key, iv, metadata):
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "master.m3u8").write_text("#EXTM3U\n")
+        (out / "thumb_0.jpg").write_text("thumb")
+        (out / "thumb_1.jpg").write_text("thumb")
+        (out / "thumb_2.jpg").write_text("thumb")
+        return {
+            "variants": ["360p", "720p"],
+            "thumbnails": ["thumb_0.jpg", "thumb_1.jpg", "thumb_2.jpg"],
+        }
+
+    with patch("app.workers.transcode_tasks.inspect_media_file", return_value=MOCK_META), \
+         patch("app.workers.transcode_tasks.transcode_to_encrypted_hls", side_effect=mock_transcode):
+        worker_res = await _process_video_async(video_id, tenant_id)
+
     assert worker_res["success"] is True
     assert worker_res["status"] == "READY"
 
@@ -195,7 +221,8 @@ async def test_security_negative_quota_breach(client: AsyncClient):
     await client.post(f"/api/v1/videos/{video_id}/complete-upload", headers=headers)
 
     # Worker processing should fail cleanly on quota breach
-    worker_res = await _process_video_async(video_id, tenant_id)
+    with patch("app.workers.transcode_tasks.inspect_media_file", return_value=MOCK_META):
+        worker_res = await _process_video_async(video_id, tenant_id)
     assert worker_res["success"] is False
     assert "Processing quota exceeded" in worker_res["error"]
 

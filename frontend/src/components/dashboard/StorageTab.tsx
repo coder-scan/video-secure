@@ -17,7 +17,7 @@ export function StorageTab({ onStorageUpdated }: StorageTabProps) {
           Cloud Storage & BYOS
         </h1>
         <p className="text-xs text-slate-400 mt-1">
-          Choose where your encrypted videos are hosted. Connect personal Google Drive or OneDrive accounts to expand free storage.
+          Choose where your encrypted videos are hosted. Connect your personal Google Drive account to expand free storage.
         </p>
       </div>
 

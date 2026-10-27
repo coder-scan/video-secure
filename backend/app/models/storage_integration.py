@@ -14,7 +14,7 @@ class TenantStorageIntegration(Base):
     provider_type = Column(
         String(50),
         nullable=False,
-    )  # PLATFORM_DEFAULT, GOOGLE_DRIVE, ONEDRIVE, CUSTOM_S3
+    )  # GOOGLE_DRIVE, LOCAL
     status = Column(
         String(50),
         nullable=False,
@@ -23,7 +23,7 @@ class TenantStorageIntegration(Base):
     provider_account_email = Column(String(255), nullable=True)
     bucket_or_folder_id = Column(String(255), nullable=True)
     credentials_cipher = Column(Text, nullable=True)  # Authenticated cipher containing sensitive keys/tokens
-    storage_quota_bytes = Column(BigInteger, nullable=True)  # e.g. 15GB for GDrive, 5GB for OneDrive
+    storage_quota_bytes = Column(BigInteger, nullable=True)  # 15GB for Google Drive
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(

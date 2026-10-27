@@ -14,10 +14,6 @@ os.environ["LOCAL_STORAGE_BASE_PATH"] = "./storage_test"
 import app.core.database as app_db
 from app.core.database import Base
 from app.main import app
-from unittest.mock import MagicMock
-from app.workers.transcode_tasks import process_video_task
-process_video_task.apply_async = MagicMock()
-process_video_task.delay = MagicMock()
 
 
 # Create unified test engine

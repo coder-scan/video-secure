@@ -30,7 +30,7 @@ class Video(Base):
     codec_audio = Column(String(32), nullable=True)
     thumbnail_paths = Column(Text, nullable=True)
     processing_error = Column(Text, nullable=True)
-    encryption_key_id = Column(String(36), default=lambda: str(uuid.uuid4()), nullable=False)
+    encryption_key_id = Column(String(36), default=lambda: str(uuid.uuid4()), nullable=False, index=True)
     encryption_key_cipher = Column(String(512), nullable=True)
     visibility = Column(String(50), nullable=False, default="PRIVATE")  # PUBLIC, UNLISTED, PRIVATE
     created_at = Column(DateTime, default=utc_now, nullable=False)

@@ -31,15 +31,27 @@ htmlcov/
 
 # Environment & Secrets
 .env
-.env.local
+.env.*
+!.env.example
 *.pem
 *.key
+*.cert
+*.crt
+*.pfx
+*.p12
+id_rsa
+id_ed25519
+service-account*.json
+credentials.json
+client_secrets*.json
 
 # Node / Frontend
 node_modules/
 .next/
 out/
 .vercel
+*.tsbuildinfo
+.turbo/
 
 # Storage & Temporary
 /storage/
@@ -57,3 +69,10 @@ storage_test/
 *.sqlite3
 *.log
 
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

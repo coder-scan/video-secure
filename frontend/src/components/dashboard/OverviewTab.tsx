@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Plus,
   Cloud,
+  ShieldAlert,
 } from "lucide-react";
 import { TenantInfo, VideoItem } from "@/lib/api";
 import { DashboardTab } from "./Sidebar";
@@ -58,6 +59,13 @@ export function OverviewTab({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => onNavigate("security")}
+            className="flex items-center gap-1.5 text-xs text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 px-3.5 py-2 rounded-xl transition-colors"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+            Security Intelligence
+          </button>
           <button
             onClick={() => onNavigate("storage")}
             className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3.5 py-2 rounded-xl transition-colors"
@@ -158,7 +166,7 @@ export function OverviewTab({
             <div className="h-full bg-purple-500" style={{ width: "4%" }} />
           </div>
           <div className="text-[11px] text-slate-500">
-            Zero egress fees with Cloudflare & BYOS
+            Zero egress fees with Google Drive BYOS
           </div>
         </div>
       </div>

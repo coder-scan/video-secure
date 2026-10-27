@@ -35,25 +35,15 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./platform.db"
 
-    # Redis & Celery
-    REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
-
     # Tokens
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     PLAYBACK_TOKEN_EXPIRE_SECONDS: int = 120
     HEARTBEAT_INTERVAL_SECONDS: int = 45
 
-    # Storage
-    STORAGE_PROVIDER_TYPE: str = "LOCAL"  # LOCAL, S3, R2
+    # Storage (LOCAL or GOOGLE_DRIVE)
+    STORAGE_PROVIDER_TYPE: str = "LOCAL"
     LOCAL_STORAGE_BASE_PATH: str = "./storage"
-    S3_ENDPOINT_URL: str = ""
-    S3_ACCESS_KEY_ID: str = ""
-    S3_SECRET_ACCESS_KEY: str = ""
-    S3_REGION_NAME: str = "auto"
-    S3_BUCKET_NAME: str = "secure-video-platform"
 
     # Quotas (Free Tier Defaults)
     FREE_TIER_STORAGE_BYTES_LIMIT: int = 5 * 1024 * 1024 * 1024  # 5 GB
@@ -109,15 +99,6 @@ class Settings(BaseSettings):
                     pass
             return [origin.strip() for origin in v_trimmed.split(",") if origin.strip()]
         return v
-
-    def model_post_init(self, __context):
-        """Auto-populate Celery broker/backend if REDIS_URL is provided in cloud environments."""
-        if self.REDIS_URL and self.REDIS_URL != "redis://localhost:6379/0":
-            if self.CELERY_BROKER_URL == "redis://localhost:6379/1":
-                self.CELERY_BROKER_URL = self.REDIS_URL
-            if self.CELERY_RESULT_BACKEND == "redis://localhost:6379/2":
-                self.CELERY_RESULT_BACKEND = self.REDIS_URL
-
 
 settings = Settings()
 

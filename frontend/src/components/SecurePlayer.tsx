@@ -98,6 +98,8 @@ export function SecurePlayer({ videoId, videoTitle, onClose }: SecurePlayerProps
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setLoading(false);
+        setError(null);
+        setConcurrencyError(null);
         video.play().catch(() => {
           // Autoplay blocked by browser policy
           setIsPlaying(false);
@@ -193,39 +195,70 @@ export function SecurePlayer({ videoId, videoTitle, onClose }: SecurePlayerProps
     return () => clearInterval(moveTimer);
   }, [session]);
 
-  // Render watermark directly on HTML5 Canvas
+  // Dynamically sync canvas buffer dimensions with container
+  useEffect(() => {
+    const updateSize = () => {
+      if (!containerRef.current || !canvasRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        if (
+          canvasRef.current.width !== Math.floor(rect.width) ||
+          canvasRef.current.height !== Math.floor(rect.height)
+        ) {
+          canvasRef.current.width = Math.floor(rect.width);
+          canvasRef.current.height = Math.floor(rect.height);
+        }
+      }
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Render watermark continuously with real-time live UTC clock
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !session) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    let animId: number;
+
     const render = () => {
       const w = canvas.width;
       const h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
 
-      // Draw floating semi-transparent tamper-evident watermark
-      ctx.save();
-      ctx.font = "bold 13px monospace";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.42)";
-      ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-      ctx.shadowBlur = 4;
+      if (w > 0 && h > 0) {
+        ctx.clearRect(0, 0, w, h);
 
-      const dateStr = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
-      const line1 = `ID: ${session.watermark.viewer_id} | ${session.watermark.viewer_ip}`;
-      const line2 = `${session.watermark.viewer_email}`;
-      const line3 = `${dateStr}`;
+        // Draw floating semi-transparent tamper-evident watermark
+        ctx.save();
+        ctx.font = "bold 13px monospace";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+        ctx.shadowBlur = 4;
 
-      ctx.fillText(line1, watermarkPos.x, watermarkPos.y);
-      ctx.fillText(line2, watermarkPos.x, watermarkPos.y + 16);
-      ctx.fillText(line3, watermarkPos.x, watermarkPos.y + 32);
-      ctx.restore();
+        const dateStr = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+        const line1 = `ID: ${session.watermark.viewer_id} | ${session.watermark.viewer_ip}`;
+        const line2 = `${session.watermark.viewer_email}`;
+        const line3 = `${dateStr}`;
+
+        const safeX = Math.min(watermarkPos.x, Math.max(10, w - 240));
+        const safeY = Math.min(watermarkPos.y, Math.max(25, h - 50));
+
+        ctx.fillText(line1, safeX, safeY);
+        ctx.fillText(line2, safeX, safeY + 16);
+        ctx.fillText(line3, safeX, safeY + 32);
+        ctx.restore();
+      }
+
+      animId = requestAnimationFrame(render);
     };
 
-    render();
-    const anim = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(anim);
+    animId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animId);
   }, [watermarkPos, session]);
 
   // 5. Tamper Watchdog: MutationObserver on Canvas Watermark

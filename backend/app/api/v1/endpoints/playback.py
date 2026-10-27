@@ -28,6 +28,7 @@ from app.services.storage.factory import get_storage_provider
 from app.services.video.crypto import decrypt_key_cipher
 
 router = APIRouter()
+_bandwidth_accumulator: dict[str, int] = {}
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -269,22 +270,34 @@ async def get_manifest_or_segment(
         await storage.download_file(remote_key, str(temp_file))
         content = temp_file.read_bytes()
 
-        # If it's an HLS playlist, rewrite relative key and segment URIs with token
+        # If it's an HLS playlist, rewrite relative key, sub-playlist, and segment URIs with token
         if path.endswith(".m3u8"):
             text = content.decode("utf-8")
-            # Inject ?token into key URI
+            # Inject ?token into key URI: #EXT-X-KEY:METHOD=AES-128,URI="enc.key"
             text = re.sub(
                 r'URI="([^"?]+)"',
                 rf'URI="\1?token={raw_token}"',
                 text,
             )
-            # Inject ?token into variant sub-playlist references if needed
-            content = text.encode("utf-8")
+            # Inject ?token into variant sub-playlist references (.m3u8) and segment lines (.ts)
+            new_lines = []
+            for line in text.splitlines():
+                trimmed = line.strip()
+                if trimmed and not trimmed.startswith("#") and not trimmed.startswith("http"):
+                    sep = "&" if "?" in trimmed else "?"
+                    new_lines.append(f"{trimmed}{sep}token={raw_token}")
+                else:
+                    new_lines.append(line)
+            content = "\n".join(new_lines).encode("utf-8")
 
-        # Track Bandwidth in Tenant Usage Ledger
-        if video.tenant and video.tenant.usage:
-            video.tenant.usage.bandwidth_bytes_used += len(content)
-            await db.commit()
+        # Track Bandwidth in Tenant Usage Ledger (batched every 2MB to prevent DB connection exhaustion)
+        if video.tenant_id:
+            accum = _bandwidth_accumulator.get(video.tenant_id, 0) + len(content)
+            _bandwidth_accumulator[video.tenant_id] = accum
+            if accum >= 2 * 1024 * 1024 and video.tenant and video.tenant.usage:
+                video.tenant.usage.bandwidth_bytes_used += accum
+                _bandwidth_accumulator[video.tenant_id] = 0
+                await db.commit()
 
         return Response(
             content=content,

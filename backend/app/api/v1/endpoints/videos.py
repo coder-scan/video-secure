@@ -54,11 +54,14 @@ async def create_upload_intent(
 
     # 3. Generate Secure Storage Key
     video_id = str(uuid.uuid4())
-    sanitized_filename = "".join(c for c in request.filename if c.isalnum() or c in "._-")
+    sanitized_filename = "".join(c for c in request.filename if c.isalnum() or c in "._-").strip()
+    if not sanitized_filename or sanitized_filename.startswith("."):
+        sanitized_filename = f"video_{video_id[:8]}.mp4"
     storage_key = f"raw/{current_tenant.id}/{video_id}/{sanitized_filename}"
 
     # 4. Generate Presigned Direct Upload URL via StorageProvider
-    storage = get_storage_provider()
+    active_integ = next((i for i in current_tenant.storage_integrations if i.is_active), None) if current_tenant.storage_integrations else None
+    storage = get_storage_provider(active_integ)
     presigned = await storage.generate_presigned_upload_url(
         key=storage_key,
         content_type=request.content_type,
@@ -111,7 +114,8 @@ async def complete_upload(
         )
 
     # Verify that file was actually received in Object Storage
-    storage = get_storage_provider()
+    active_integ = next((i for i in current_tenant.storage_integrations if i.is_active), None) if current_tenant.storage_integrations else None
+    storage = get_storage_provider(active_integ)
     exists = await storage.object_exists(video.raw_storage_key)
     if not exists:
         raise HTTPException(
@@ -134,20 +138,10 @@ async def complete_upload(
     await db.commit()
     await db.refresh(video)
 
-    # Dispatch asynchronous transcoding task (Celery if online, or async fallback)
-    dispatched = False
-    try:
-        from app.workers.transcode_tasks import process_video_task
-        process_video_task.apply_async(args=[video.id, current_tenant.id], retry=False)
-        dispatched = True
-    except Exception:
-        dispatched = False
-
-    if not dispatched:
-        # Fallback for single-container / free-tier deployments without running Celery worker
-        import asyncio
-        from app.workers.transcode_tasks import _process_video_async
-        asyncio.create_task(_process_video_async(video.id, current_tenant.id))
+    # Dispatch asynchronous transcoding task directly
+    import asyncio
+    from app.workers.transcode_tasks import _process_video_async
+    asyncio.create_task(_process_video_async(video.id, current_tenant.id))
 
     return video
 
@@ -178,18 +172,9 @@ async def retry_process(
     await db.commit()
     await db.refresh(video)
 
-    dispatched = False
-    try:
-        from app.workers.transcode_tasks import process_video_task
-        process_video_task.delay(video.id, current_tenant.id)
-        dispatched = True
-    except Exception:
-        dispatched = False
-
-    if not dispatched:
-        import asyncio
-        from app.workers.transcode_tasks import _process_video_async
-        asyncio.create_task(_process_video_async(video.id, current_tenant.id))
+    import asyncio
+    from app.workers.transcode_tasks import _process_video_async
+    asyncio.create_task(_process_video_async(video.id, current_tenant.id))
 
     return video
 
@@ -222,19 +207,67 @@ async def get_video(
     return video
 
 
+@router.post("/{video_id}/revoke-key", response_model=VideoResponse)
+async def revoke_video_key(
+    video_id: str,
+    current_user: Annotated[User, Depends(get_current_active_creator)],
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    result = await db.execute(
+        select(Video).where(Video.id == video_id, Video.tenant_id == current_tenant.id)
+    )
+    video = result.scalar_one_or_none()
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+
+    # Invalidate key cipher
+    video.encryption_key_cipher = None
+    video.status = "REVOKED"
+    await db.commit()
+    await db.refresh(video)
+
+    # Terminate active streaming sessions in session concurrency manager
+    from app.services.playback.concurrency import session_manager
+    async with session_manager._lock:
+        for s in list(session_manager._sessions.values()):
+            if s.video_id == video_id:
+                s.status = "TERMINATED"
+                s.termination_reason = "KEY_REVOKED"
+
+    return video
+
+
 # Local simulation upload endpoint (used when storage provider is LOCAL)
 @router.put("/local-upload")
 async def local_upload_handler(
     request: Request,
     storage_key: str = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
     from pathlib import Path
     from app.core.config import settings
     
-    base = Path(settings.LOCAL_STORAGE_BASE_PATH)
-    dest = base / storage_key.lstrip("/\\")
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    # 1. Prevent Path Traversal
+    base = Path(settings.LOCAL_STORAGE_BASE_PATH).resolve()
+    clean_key = storage_key.replace("\\", "/").lstrip("/")
+    if ".." in clean_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid storage path")
     
+    dest = (base / clean_key).resolve()
+    if not str(dest).startswith(str(base)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path traversal detected")
+        
+    # 2. Verify that storage_key is authorized and belongs to an existing UPLOADING video
+    res = await db.execute(select(Video).where(Video.raw_storage_key == storage_key))
+    video = res.scalar_one_or_none()
+    if not video or video.status != "UPLOADING":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unauthorized or expired upload target",
+        )
+    
+    dest.parent.mkdir(parents=True, exist_ok=True)
     total_size = 0
     with open(dest, "wb") as f:
         async for chunk in request.stream():

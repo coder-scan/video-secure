@@ -7,6 +7,7 @@ import {
   UploadCloud,
   Cloud,
   ShieldCheck,
+  ShieldAlert,
   LogOut,
   Sliders,
   HardDrive,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { TenantInfo } from "@/lib/api";
 
-export type DashboardTab = "overview" | "videos" | "upload" | "storage" | "admin";
+export type DashboardTab = "overview" | "videos" | "upload" | "storage" | "security" | "admin";
 
 interface SidebarProps {
   currentTab: DashboardTab;
@@ -44,7 +45,8 @@ export function Sidebar({
     { id: "videos", label: "Video Library", icon: Film, badge: videoCount > 0 ? String(videoCount) : undefined },
     { id: "upload", label: "Upload Studio", icon: UploadCloud },
     { id: "storage", label: "Cloud Storage (BYOS)", icon: Cloud },
-    { id: "admin", label: "Admin & Security", icon: Sliders, badge: "Admin", adminOnly: true },
+    { id: "security", label: "Security & Anti-Piracy", icon: ShieldAlert, badge: "Live" },
+    { id: "admin", label: "Tenant Administration", icon: Sliders, badge: "Admin", adminOnly: true },
   ];
 
   return (

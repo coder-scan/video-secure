@@ -67,6 +67,21 @@ def create_hls_keyinfo_file(
     return key_file, keyinfo_file
 
 
+def get_ffmpeg_bin() -> Optional[str]:
+    bin_path = shutil.which("ffmpeg")
+    if bin_path:
+        return bin_path
+    import os
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Links/ffmpeg.exe",
+        Path("C:/Users/solan/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.2-full_build/bin/ffmpeg.exe"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+
 def transcode_to_encrypted_hls(
     source_file: Path,
     output_dir: Path,
@@ -80,14 +95,21 @@ def transcode_to_encrypted_hls(
     and generates keyframe thumbnails.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    ffmpeg_bin = shutil.which("ffmpeg")
+    ffmpeg_bin = get_ffmpeg_bin()
 
     variants = select_target_variants(metadata.height)
     key_file, keyinfo_file = create_hls_keyinfo_file(output_dir, key_uri, raw_key, iv)
 
     try:
         if ffmpeg_bin:
-            _execute_ffmpeg_hls(ffmpeg_bin, source_file, output_dir, keyinfo_file, variants)
+            _execute_ffmpeg_hls(
+                ffmpeg_bin,
+                source_file,
+                output_dir,
+                keyinfo_file,
+                variants,
+                has_audio=bool(metadata.codec_audio),
+            )
             thumbnail_paths = _generate_thumbnails_ffmpeg(
                 ffmpeg_bin, source_file, output_dir, metadata.duration_seconds
             )
@@ -119,6 +141,7 @@ def _execute_ffmpeg_hls(
     output_dir: Path,
     keyinfo_file: Path,
     variants: List[TranscodeVariant],
+    has_audio: bool = True,
 ) -> None:
     """Executes FFmpeg with structured argument arrays for each variant."""
     for v in variants:
@@ -136,14 +159,20 @@ def _execute_ffmpeg_hls(
             "-b:v", v.video_bitrate,
             "-maxrate", v.video_bitrate,
             "-bufsize", f"{int(v.video_bitrate[:-1]) * 2}k",
-            "-c:a", "aac",
-            "-b:a", v.audio_bitrate,
+        ]
+
+        if has_audio:
+            cmd.extend(["-c:a", "aac", "-b:a", v.audio_bitrate])
+        else:
+            cmd.append("-an")
+
+        cmd.extend([
             "-hls_time", "6",
             "-hls_playlist_type", "vod",
             "-hls_key_info_file", str(keyinfo_file.resolve()),
             "-hls_segment_filename", str(segment_pattern.resolve()),
             str(playlist_path.resolve()),
-        ]
+        ])
 
         proc = subprocess.run(
             cmd,

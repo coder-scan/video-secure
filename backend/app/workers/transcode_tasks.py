@@ -8,7 +8,6 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import async_session_maker
 from app.models.tenant import Tenant
@@ -21,25 +20,14 @@ from app.services.video.transcoder import transcode_to_encrypted_hls
 logger = logging.getLogger(__name__)
 
 
-def run_async(coro):
-    """Utility to run an async coroutine synchronously inside a Celery task."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
-
-
-@celery_app.task(name="app.workers.transcode_tasks.process_video_task", bind=True, max_retries=2)
-def process_video_task(self, video_id: str, tenant_id: str):
+async def process_video_task(video_id: str, tenant_id: str) -> dict:
     """
-    Asynchronous worker task that validates untrusted uploaded media,
+    Asynchronous task that validates untrusted uploaded media,
     verifies tenant processing quota, packages video into encrypted multi-variant HLS,
     generates thumbnails, and updates the database state.
     """
     logger.info(f"Starting transcode task for video {video_id} (tenant: {tenant_id})")
-    return run_async(_process_video_async(video_id, tenant_id))
+    return await _process_video_async(video_id, tenant_id)
 
 
 async def _process_video_async(video_id: str, tenant_id: str) -> dict:
@@ -60,7 +48,11 @@ async def _process_video_async(video_id: str, tenant_id: str) -> dict:
 
         t_res = await db.execute(
             select(Tenant)
-            .options(selectinload(Tenant.quota), selectinload(Tenant.usage))
+            .options(
+                selectinload(Tenant.quota),
+                selectinload(Tenant.usage),
+                selectinload(Tenant.storage_integrations),
+            )
             .where(Tenant.id == tenant_id)
         )
         tenant = t_res.scalar_one_or_none()
@@ -80,7 +72,12 @@ async def _process_video_async(video_id: str, tenant_id: str) -> dict:
         local_raw_path = scratch_dir / "source_media.tmp"
         hls_output_dir = scratch_dir / "hls_output"
 
-        storage = get_storage_provider()
+        active_integ = (
+            next((i for i in tenant.storage_integrations if i.is_active), None)
+            if tenant.storage_integrations
+            else None
+        )
+        storage = get_storage_provider(active_integ)
 
         try:
             # 4. Ingest raw media from object storage

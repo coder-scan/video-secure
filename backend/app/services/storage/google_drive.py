@@ -73,10 +73,19 @@ class GoogleDriveStorageProvider(StorageProvider):
     ) -> Dict[str, Any]:
         """
         Creates a direct Google Drive resumable upload session URI,
-        allowing the client to upload directly into Google Drive without server hop.
+        or routes to local-upload simulation when running in dev/offline mode.
         """
+        # If running in local dev / mock mode, route through local-upload handler
+        if self.client_id == "mock-client-id" or not os.getenv("GOOGLE_OAUTH_CLIENT_ID"):
+            return {
+                "upload_url": f"/api/v1/videos/local-upload?uploadType=resumable&storage_key={key}",
+                "method": "PUT",
+                "headers": {"Content-Type": content_type},
+                "fields": {},
+                "expires_in": expires_in,
+            }
+
         token = await self.get_valid_access_token()
-        # Simulated or live Google Drive Resumable upload session URL
         filename = Path(key).name
         upload_url = f"{self.DRIVE_UPLOAD_BASE}/files?uploadType=resumable&key={key}"
 
@@ -102,27 +111,37 @@ class GoogleDriveStorageProvider(StorageProvider):
         file_id = self._file_id_cache.get(key, key)
         return f"{self.DRIVE_API_BASE}/files/{file_id}?alt=media&access_token={token}"
 
+    def _resolve_local_paths(self, key: str) -> list[Path]:
+        clean = key.lstrip("/\\")
+        return [
+            Path("./storage") / "gdrive_mock" / clean,
+            Path("./storage") / clean,
+            Path("./storage_test") / clean,
+        ]
+
     async def object_exists(self, key: str) -> bool:
         # Check cache or simulate lookup
         if key in self._file_id_cache:
             return True
-        # For local dev / test mock persistence
-        local_mock = Path("./storage") / "gdrive_mock" / key.lstrip("/\\")
-        return local_mock.exists()
+        for p in self._resolve_local_paths(key):
+            if p.exists() and p.is_file() and p.stat().st_size > 0:
+                return True
+        return False
 
     async def get_object_metadata(self, key: str) -> Dict[str, Any]:
-        local_mock = Path("./storage") / "gdrive_mock" / key.lstrip("/\\")
-        if local_mock.exists():
-            stat = local_mock.stat()
-            return {"content_length": stat.st_size, "last_modified": stat.st_mtime}
+        for p in self._resolve_local_paths(key):
+            if p.exists() and p.is_file():
+                stat = p.stat()
+                return {"content_length": stat.st_size, "last_modified": stat.st_mtime}
         return {"content_length": 1024 * 1024, "provider": "GOOGLE_DRIVE"}
 
     async def delete_object(self, key: str) -> bool:
-        local_mock = Path("./storage") / "gdrive_mock" / key.lstrip("/\\")
-        if local_mock.exists():
-            local_mock.unlink()
-            return True
-        return True
+        deleted = False
+        for p in self._resolve_local_paths(key):
+            if p.exists():
+                p.unlink()
+                deleted = True
+        return deleted or True
 
     async def upload_file(
         self, local_path: str, remote_key: str, content_type: str = "application/octet-stream"
@@ -139,12 +158,12 @@ class GoogleDriveStorageProvider(StorageProvider):
         return f"gdrive://{self.root_folder_id}/{remote_key}"
 
     async def download_file(self, remote_key: str, local_path: str) -> str:
-        mock_source = Path("./storage") / "gdrive_mock" / remote_key.lstrip("/\\")
-        if mock_source.exists():
-            import shutil
-            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(mock_source, local_path)
-            return local_path
+        import shutil
+        for p in self._resolve_local_paths(remote_key):
+            if p.exists() and p.is_file():
+                Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, local_path)
+                return local_path
         raise FileNotFoundError(f"Object {remote_key} not found in Google Drive")
 
     async def list_objects(self, prefix: str) -> list:

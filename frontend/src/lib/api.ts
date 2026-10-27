@@ -175,6 +175,18 @@ export const api = {
     return res.json();
   },
 
+  async getVideo(videoId: string): Promise<VideoItem> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/videos/${videoId}`, { headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to load video details");
+    }
+    return res.json();
+  },
+
   resolveUrl(url: string): string {
     if (!url) return "";
     if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -230,6 +242,21 @@ export const api = {
     return res.json();
   },
 
+  async revokeVideoKey(videoId: string): Promise<VideoItem> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/videos/${videoId}/revoke-key`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to revoke video encryption key");
+    }
+    return res.json();
+  },
+
   async getPlaybackToken(videoId: string): Promise<PlaybackSessionInfo> {
     const token = this.getToken();
     const res = await fetch(`${API_BASE_URL}/playback/token`, {
@@ -278,35 +305,7 @@ export const api = {
     return res.json();
   },
 
-  async connectCustomS3(payload: {
-    bucket_name: string;
-    access_key_id: string;
-    secret_access_key: string;
-    endpoint_url?: string;
-    region_name?: string;
-  }): Promise<StorageIntegrationItem> {
-    const token = this.getToken();
-    const res = await fetch(`${API_BASE_URL}/integrations/storage/connect-s3`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to connect S3 bucket");
-    }
-    return res.json();
-  },
-
-  async connectOAuthStorage(payload: {
-    provider_type: "GOOGLE_DRIVE" | "ONEDRIVE";
-    refresh_token: string;
-    account_email?: string;
-    folder_id?: string;
-  }): Promise<StorageIntegrationItem> {
+  async connectGoogleDrive(account_email?: string): Promise<StorageIntegrationItem> {
     const token = this.getToken();
     const res = await fetch(`${API_BASE_URL}/integrations/storage/connect-oauth`, {
       method: "POST",
@@ -314,13 +313,25 @@ export const api = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        provider_type: "GOOGLE_DRIVE",
+        account_email,
+      }),
     });
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || "Failed to connect cloud storage");
+      throw new Error(err.detail || "Failed to connect Google Drive storage");
     }
     return res.json();
+  },
+
+  async connectOAuthStorage(payload?: {
+    provider_type?: string;
+    refresh_token?: string;
+    account_email?: string;
+    folder_id?: string;
+  }): Promise<StorageIntegrationItem> {
+    return this.connectGoogleDrive(payload?.account_email);
   },
 
   async disconnectStorageIntegration(integrationId: string): Promise<void> {
@@ -331,17 +342,146 @@ export const api = {
     });
     if (!res.ok) throw new Error("Failed to disconnect storage");
   },
+
+  // --- STAGE 5: Security Risk Engine & Anti-Piracy Intelligence ---
+  async getRiskOverview(): Promise<RiskOverviewInfo> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/risk-overview`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to fetch risk overview");
+    return res.json();
+  },
+
+  async getActiveSessions(): Promise<ActiveSessionItem[]> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to fetch active streaming sessions");
+    return res.json();
+  },
+
+  async revokeSession(sessionId: string): Promise<{ success: boolean; message: string }> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/sessions/${sessionId}/revoke`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to revoke session");
+    return res.json();
+  },
+
+  async getSecurityEvents(severity?: string, eventType?: string, limit: number = 50): Promise<SecurityEventItem[]> {
+    const token = this.getToken();
+    const params = new URLSearchParams();
+    if (severity) params.set("severity", severity);
+    if (eventType) params.set("event_type", eventType);
+    params.set("limit", String(limit));
+
+    const res = await fetch(`${API_BASE_URL}/security/events?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to fetch security events");
+    return res.json();
+  },
+
+  async getIncidents(): Promise<PiracyIncidentItem[]> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/incidents`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to fetch piracy incidents");
+    return res.json();
+  },
+
+  async updateIncidentStatus(incidentId: string, status: string, notes?: string): Promise<PiracyIncidentItem> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/incidents/${incidentId}/update-status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ status, notes }),
+    });
+    if (!res.ok) throw new Error("Failed to update incident status");
+    return res.json();
+  },
+
+  async downloadIncidentEvidence(incidentId: string, format: "json" | "csv" = "json"): Promise<Blob> {
+    const token = this.getToken();
+    const res = await fetch(`${API_BASE_URL}/security/incidents/${incidentId}/evidence?format=${format}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to download evidence package");
+    return res.blob();
+  },
 };
 
 export interface StorageIntegrationItem {
   id: string;
-  provider_type: "CUSTOM_S3" | "GOOGLE_DRIVE" | "ONEDRIVE";
+  provider_type: "GOOGLE_DRIVE" | string;
   status: string;
   provider_account_email?: string;
   bucket_or_folder_id?: string;
   storage_quota_bytes?: number;
   is_active: boolean;
   created_at: string;
+}
+
+export interface SecurityEventItem {
+  id: string;
+  tenant_id: string;
+  user_id?: string;
+  session_id?: string;
+  video_id?: string;
+  event_type: string;
+  severity: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  risk_score: number;
+  ip_address?: string;
+  details?: string;
+  created_at: string;
+}
+
+export interface ActiveSessionItem {
+  session_id: string;
+  user_id: string;
+  user_email: string;
+  video_id: string;
+  video_title: string;
+  ip_address: string;
+  risk_score: number;
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  started_at: string;
+  last_heartbeat: string;
+  status: string;
+}
+
+export interface RiskOverviewInfo {
+  overall_risk_level: "LOW" | "MEDIUM" | "HIGH";
+  average_risk_score: number;
+  active_streaming_sessions: number;
+  revoked_sessions_count: number;
+  total_security_events: number;
+  open_piracy_incidents: number;
+  recent_critical_events: SecurityEventItem[];
+}
+
+export interface PiracyIncidentItem {
+  id: string;
+  incident_number: string;
+  video_id: string;
+  video_title?: string;
+  status: "DETECTED" | "UNDER_REVIEW" | "CONFIRMED" | "DISMISSED" | "RESOLVED";
+  similarity_score: number;
+  source_url?: string;
+  suspected_user_id?: string;
+  suspected_session_id?: string;
+  evidence_data?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 

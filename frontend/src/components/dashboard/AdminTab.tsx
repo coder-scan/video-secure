@@ -14,7 +14,7 @@ import {
   CheckCircle2,
   Trash2,
 } from "lucide-react";
-import { TenantInfo } from "@/lib/api";
+import { TenantInfo, api } from "@/lib/api";
 
 interface AdminTabProps {
   tenant: TenantInfo | null;
@@ -25,6 +25,7 @@ interface AdminTabProps {
 export function AdminTab({ tenant, userRole, userEmail }: AdminTabProps) {
   const [revokeVideoId, setRevokeVideoId] = useState("");
   const [revokeStatus, setRevokeStatus] = useState<string | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return "0 MB";
@@ -36,13 +37,22 @@ export function AdminTab({ tenant, userRole, userEmail }: AdminTabProps) {
   const quota = tenant?.quota;
   const usage = tenant?.usage;
 
-  const handleRevokeKey = (e: React.FormEvent) => {
+  const handleRevokeKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!revokeVideoId.trim()) return;
-    if (confirm(`Permanently revoke master encryption key for video "${revokeVideoId}"? All streams will be terminated immediately.`)) {
-      setRevokeStatus(`Master key for "${revokeVideoId}" revoked. Decryption halted.`);
-      setRevokeVideoId("");
-      setTimeout(() => setRevokeStatus(null), 5000);
+    const vidId = revokeVideoId.trim();
+    if (!vidId) return;
+    if (confirm(`Permanently revoke master encryption key for video "${vidId}"? All streams will be terminated immediately.`)) {
+      try {
+        setIsRevoking(true);
+        await api.revokeVideoKey(vidId);
+        setRevokeStatus(`Master key for "${vidId}" revoked. Decryption halted & active sessions killed.`);
+        setRevokeVideoId("");
+        setTimeout(() => setRevokeStatus(null), 5000);
+      } catch (err: any) {
+        alert(err.message || "Failed to revoke key");
+      } finally {
+        setIsRevoking(false);
+      }
     }
   };
 

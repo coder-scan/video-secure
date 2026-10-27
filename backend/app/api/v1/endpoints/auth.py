@@ -21,7 +21,11 @@ router = APIRouter()
 def slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
-    return re.sub(r"[-\s]+", "-", text)
+    slug = re.sub(r"[-\s]+", "-", text).strip("-")
+    if not slug:
+        import uuid
+        slug = f"org-{uuid.uuid4().hex[:8]}"
+    return slug
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -161,11 +165,11 @@ async def admin_login(
     Validates superadmin credentials defined in .env and ensures
     master organization and superadmin account are initialized with full privileges.
     """
-    # 1. Check against root .env superadmin credentials
-    is_superadmin = (
-        request.email.lower() == settings.SUPERADMIN_EMAIL.lower()
-        and request.password == settings.SUPERADMIN_PASSWORD
-    )
+    # 1. Check against root .env superadmin credentials using constant-time comparison
+    import hmac
+    is_email_match = hmac.compare_digest(request.email.lower(), settings.SUPERADMIN_EMAIL.lower())
+    is_password_match = hmac.compare_digest(request.password, settings.SUPERADMIN_PASSWORD)
+    is_superadmin = is_email_match and is_password_match
 
     if is_superadmin:
         # Check if master superadmin user already exists in DB

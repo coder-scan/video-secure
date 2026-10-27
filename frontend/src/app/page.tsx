@@ -17,6 +17,7 @@ import { OverviewTab } from "@/components/dashboard/OverviewTab";
 import { VideosTab } from "@/components/dashboard/VideosTab";
 import { UploadTab } from "@/components/dashboard/UploadTab";
 import { StorageTab } from "@/components/dashboard/StorageTab";
+import { SecurityTab } from "@/components/dashboard/SecurityTab";
 import { AdminTab } from "@/components/dashboard/AdminTab";
 import { SecurePlayer } from "@/components/SecurePlayer";
 
@@ -61,7 +62,11 @@ export default function DashboardPage() {
       setVideos(videosData);
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes("credentials") || err.message?.includes("401")) {
+      if (
+        err.message?.includes("credentials") ||
+        err.message?.includes("401") ||
+        err.message?.includes("organization")
+      ) {
         api.clearToken();
         setToken(null);
       }
@@ -311,6 +316,10 @@ export default function DashboardPage() {
 
               {currentTab === "storage" && (
                 <StorageTab onStorageUpdated={loadDashboardData} />
+              )}
+
+              {currentTab === "security" && (
+                <SecurityTab />
               )}
 
               {currentTab === "admin" && (

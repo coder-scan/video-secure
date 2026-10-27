@@ -51,7 +51,11 @@ async def get_current_tenant(
 ) -> Tenant:
     result = await db.execute(
         select(Tenant)
-        .options(selectinload(Tenant.quota), selectinload(Tenant.usage))
+        .options(
+            selectinload(Tenant.quota),
+            selectinload(Tenant.usage),
+            selectinload(Tenant.storage_integrations),
+        )
         .where(Tenant.id == current_user.tenant_id)
     )
     tenant = result.scalar_one_or_none()

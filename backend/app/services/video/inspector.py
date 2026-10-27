@@ -32,6 +32,21 @@ class MediaMetadata:
     size_bytes: int
 
 
+def get_ffprobe_bin() -> Optional[str]:
+    bin_path = shutil.which("ffprobe")
+    if bin_path:
+        return bin_path
+    import os
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Links/ffprobe.exe",
+        Path("C:/Users/solan/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.2-full_build/bin/ffprobe.exe"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+
 def inspect_media_file(file_path: Path) -> MediaMetadata:
     """
     Inspects an untrusted media file using ffprobe with structured JSON output.
@@ -40,7 +55,7 @@ def inspect_media_file(file_path: Path) -> MediaMetadata:
     if not file_path.exists() or file_path.stat().st_size == 0:
         raise MediaValidationError("Media file does not exist or is empty")
 
-    ffprobe_bin = shutil.which("ffprobe")
+    ffprobe_bin = get_ffprobe_bin()
     if not ffprobe_bin:
         # Fallback inspection mode for local dev environments lacking ffprobe binary
         logger.warning("ffprobe not found in system PATH. Using fallback inspection.")

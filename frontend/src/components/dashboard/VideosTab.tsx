@@ -12,6 +12,8 @@ import {
   Plus,
   ShieldCheck,
   HardDrive,
+  Share2,
+  Check,
 } from "lucide-react";
 import { VideoItem } from "@/lib/api";
 
@@ -30,6 +32,15 @@ export function VideosTab({
 }: VideosTabProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyLink = (vidId: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const url = `${origin}/watch/${vidId}`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(vidId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return "0 MB";
@@ -175,13 +186,33 @@ export function VideosTab({
                   </span>
 
                   {vid.status === "READY" && (
-                    <button
-                      onClick={() => onPlayVideo(vid)}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      Watch Stream
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleCopyLink(vid.id)}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-2 rounded-xl transition-all border border-slate-700/80 flex items-center gap-1.5"
+                        title="Copy Secure Watch Link"
+                      >
+                        {copiedId === vid.id ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-400">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Share Link</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => onPlayVideo(vid)}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        Watch Stream
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
